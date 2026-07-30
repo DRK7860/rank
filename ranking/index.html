@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ranking do Bolão</title>
+    <style>
+        :root {
+            --bg-dark: #3cda14;
+            --text-main: #000000;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+
+        body {
+            background-color: var(--bg-dark); 
+            background-image: url('fundo2.png');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            padding: 20px 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container { width: 100%; max-width: 1100px; }
+
+        .header-card, .table-responsive {
+            background: rgba(255, 255, 255, 0.9); 
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            color: #000;
+        }
+
+        table { width: 100%; border-collapse: collapse; text-align: center; }
+
+        /* Grade e espaçamento */
+        th, td { 
+            padding: 12px 10px; 
+            border-bottom: 1px solid rgba(0,0,0,0.1); 
+            border-right: 1px solid rgba(0,0,0,0.1); /* Cria a grade vertical */
+        }
+        
+        /* Remove a borda da última coluna para ficar limpo */
+        th:last-child, td:last-child { border-right: none; }
+
+        th { border-bottom: 2px solid rgba(0,0,0,0.2); color: #333; }
+
+        .col-nome { text-align: left; font-weight: bold; }
+        .col-total { font-weight: bold; color: #0055aa; }
+
+        /* Estilização do pódio */
+        .lugar-1 { background-color: rgba(234, 179, 8, 0.3) !important; }
+        .lugar-2 { background-color: rgba(148, 163, 184, 0.3) !important; }
+        .lugar-3 { background-color: rgba(180, 83, 9, 0.3) !important; }
+
+        /* Cores de acerto */
+        .acerto-exato { background-color: rgba(0, 255, 102, 0.2); color: #008800; font-weight: bold; }
+        .acerto-parcial { background-color: rgba(255, 230, 0, 0.2); color: #aa8800; font-weight: bold; }
+        .erro-jogo { background-color: rgba(255, 68, 68, 0.1); color: #cc0000; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header-card">
+            <h1>🏆 RANKING DO BOLÃO</h1>
+        </div>
+
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>POS</th>
+                        <th class="col-nome">APOSTADOR</th>
+                        <th>J1</th><th>J2</th><th>J3</th><th>J4</th>
+                        <th>J5</th><th>J6</th><th>J7</th><th>J8</th>
+                        <th class="col-total">TOTAL</th>
+                    </tr>
+                </thead>
+                <tbody id="tabela-corpo"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyCxWK8_GMj6K75p3_scifj5w5M42UrizoU",
+            authDomain: "bolao-bec5c.firebaseapp.com",
+            databaseURL: "https://bolao-bec5c-default-rtdb.firebaseio.com",
+            projectId: "bolao-bec5c",
+            storageBucket: "bolao-bec5c.firebasestorage.app",
+            messagingSenderId: "852932005889",
+            appId: "1:852932005889:web:136229dd5162783d963000"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let apostadoresMap = {};
+        let placaresOficiais = ['', '', '', '', '', '', '', ''];
+
+        db.ref('bolao_placares').on('value', s => { placaresOficiais = s.val() || []; renderizarTabela(); });
+        db.ref('bolao_dados').on('value', s => { apostadoresMap = s.val() || {}; renderizarTabela(); });
+
+        function calcularPontosJogo(palpite, resOficial) {
+            if (!palpite || !resOficial) return { pts: 0, tipo: 'sem' };
+            const [p1, p2] = palpite.split('x').map(Number);
+            const [r1, r2] = resOficial.split('x').map(Number);
+            if (p1 === r1 && p2 === r2) return { pts: 15, tipo: 'exato' };
+            const vP = p1 > p2 ? 1 : (p1 < p2 ? 2 : 0);
+            const vR = r1 > r2 ? 1 : (r1 < r2 ? 2 : 0);
+            return (vP === vR) ? { pts: 5, tipo: 'parcial' } : { pts: 0, tipo: 'erro' };
+        }
+
+        function renderizarTabela() {
+            const tbody = document.getElementById('tabela-corpo');
+            tbody.innerHTML = '';
+
+            // Verifica se existe algum placar preenchido para saber se o bolão começou
+            const bolaoComecou = placaresOficiais.some(p => p && p.trim() !== '');
+
+            let lista = Object.keys(apostadoresMap)
+                .map(id => {
+                    const p = apostadoresMap[id];
+                    if (!p || !p.nome || p.nome.trim() === '') return null;
+                    const palpitesArr = Array.isArray(p.palpites) ? p.palpites : Object.values(p.palpites || {});
+                    const total = palpitesArr.reduce((acc, val, i) => acc + calcularPontosJogo(val, placaresOficiais[i]).pts, 0);
+                    return { nome: p.nome, palpitesArr, total };
+                })
+                .filter(item => item !== null);
+
+            lista.sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome));
+
+            lista.forEach((p, i) => {
+                let tr = document.createElement('tr');
+                
+                // Só aplica as classes de pódio se houver placar definido
+                if (bolaoComecou) {
+                    if (i === 0) tr.classList.add('lugar-1');
+                    else if (i === 1) tr.classList.add('lugar-2');
+                    else if (i === 2) tr.classList.add('lugar-3');
+                }
+
+                const jogosHtml = p.palpitesArr.map((palpite, j) => {
+                    const temPlacar = placaresOficiais[j] && placaresOficiais[j].trim() !== '';
+                    const res = calcularPontosJogo(palpite, placaresOficiais[j]);
+                    
+                    const classe = temPlacar ? (res.tipo === 'exato' ? 'acerto-exato' : 
+                                   res.tipo === 'parcial' ? 'acerto-parcial' : 
+                                   res.tipo === 'erro' ? 'erro-jogo' : '') : '';
+                                   
+                    return `<td class="${classe}">${palpite || '-'}</td>`;
+                }).join('');
+
+                tr.innerHTML = `
+                    <td>${i + 1}º</td>
+                    <td class="col-nome">${p.nome}</td>
+                    ${jogosHtml}
+                    <td class="col-total">${p.total} pts</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>
